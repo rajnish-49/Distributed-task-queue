@@ -1,3 +1,4 @@
+-- +goose Up
 CREATE TYPE job_status AS ENUM (
     'pending',
     'processing',
@@ -21,3 +22,8 @@ CREATE TABLE jobs (
 
 CREATE INDEX idx_jobs_status_scheduled_at
 ON jobs (status, scheduled_at);
+
+-- +goose Down
+DROP INDEX IF EXISTS idx_jobs_status_scheduled_at;
+DROP TABLE IF EXISTS jobs;
+DROP TYPE IF EXISTS job_status;
