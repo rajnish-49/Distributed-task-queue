@@ -2,10 +2,10 @@ package storage
 
 import (
 	"context"
+	"distributed-task-queue/internal/job"
 	"encoding/json"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"time"
-	"distributed-task-queue/internal/job"
 )
 
 type Store struct {
@@ -49,20 +49,20 @@ func (s *Store) CreateJob(ctx context.Context, params CreateJobParams) (*job.Job
 	}
 
 	const query = `
-		INSERT INTO jobs (job_type, payload, status, max_attempts, scheduled_at)
-		VALUES ($1, $2, $3, $4, $5)
-		RETURNING
-			id,
-			job_type,
-			payload,
-			status,
-			attempts,
-			max_attempts,
-			COALESCE(error_msg, ''),
-			scheduled_at,
-			created_at,
-			updated_at
-	`
+	INSERT INTO jobs (job_type, payload, status, max_attempts, scheduled_at)
+	VALUES ($1, $2::jsonb, $3, $4, $5)
+	RETURNING
+		id,
+		job_type,
+		payload,
+		status,
+		attempts,
+		max_attempts,
+		COALESCE(error_msg, ''),
+		scheduled_at,
+		created_at,
+		updated_at
+`
 
 	var created job.Job
 
@@ -70,7 +70,7 @@ func (s *Store) CreateJob(ctx context.Context, params CreateJobParams) (*job.Job
 		ctx,
 		query,
 		params.Type,
-		params.Payload,
+		string(params.Payload),
 		job.StatusPending,
 		params.MaxAttempts,
 		params.ScheduledAt,
