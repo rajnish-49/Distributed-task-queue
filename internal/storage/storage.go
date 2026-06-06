@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"time"
+	"github.com/jackc/pgx/v5"
+
 )
 
 type Store struct {
@@ -92,3 +94,72 @@ func (s *Store) CreateJob(ctx context.Context, params CreateJobParams) (*job.Job
 
 	return &created, nil
 }
+
+func (s *Store) ClaimJob(ctx context.Context) (*job.Job, error) {
+    tx, err := s.db.Begin(ctx)
+    if err != nil {
+        return nil, err
+    }
+    defer tx.Rollback(ctx)
+
+    const selectQuery = `
+        SELECT id FROM jobs
+        WHERE status = 'pending'
+        AND scheduled_at <= NOW()
+        ORDER BY scheduled_at ASC
+        FOR UPDATE SKIP LOCKED
+        LIMIT 1
+    `
+
+    var id int64
+    err = tx.QueryRow(ctx, selectQuery).Scan(&id)
+    if err == pgx.ErrNoRows {
+        return nil, nil
+    }
+    if err != nil {
+        return nil, err
+    }
+
+    const updateQuery = `
+        UPDATE jobs
+        SET status = 'processing',
+            updated_at = NOW()
+        WHERE id = $1
+        RETURNING
+            id,
+            job_type,
+            payload,
+            status,
+            attempts,
+            max_attempts,
+            COALESCE(error_msg, ''),
+            scheduled_at,
+            created_at,
+            updated_at
+    `
+
+    var claimed job.Job
+    err = tx.QueryRow(ctx, updateQuery, id).Scan(
+        &claimed.ID,
+        &claimed.Type,
+        &claimed.Payload,
+        &claimed.Status,
+        &claimed.Attempts,
+        &claimed.MaxAttempts,
+        &claimed.ErrorMsg,
+        &claimed.ScheduledAt,
+        &claimed.CreatedAt,
+        &claimed.UpdatedAt,
+    )
+    if err != nil {
+        return nil, err
+    }
+
+    if err := tx.Commit(ctx); err != nil {
+        return nil, err
+    }
+
+    return &claimed, nil
+}
+
+
