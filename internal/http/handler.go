@@ -1,10 +1,9 @@
 package http
 
 import (
-	"context"
 	"encoding/json"
 	"net/http"
-
+	"strconv"
 	"distributed-task-queue/internal/storage"
 )
 
@@ -45,4 +44,30 @@ func (h *Handler) CreateJob(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	_ = json.NewEncoder(w).Encode(createdJob)
+}
+
+func (h *Handler) GetJob(w http.ResponseWriter, r *http.Request) {
+	idStr := r.PathValue("id")
+	
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		http.Error(w, "invalid job ID", http.StatusBadRequest)
+		return
+	}
+
+	job, err := h.store.GetJobByID(r.Context(), id)
+	if err != nil {
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	if job == nil {
+		http.Error(w, "job not found", http.StatusNotFound)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(job); err != nil {
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+	}
 }
