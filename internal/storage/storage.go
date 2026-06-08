@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"fmt"
 	"context"
 	"distributed-task-queue/internal/job"
 	"encoding/json"
@@ -107,16 +108,18 @@ func (s *Store) ClaimJob(ctx context.Context) (*job.Job, error) {
         WHERE status = 'pending'
         AND scheduled_at <= NOW()
         ORDER BY scheduled_at ASC
-        FOR UPDATE SKIP LOCKED
+        FOR UPDATE SKIP LOCKED  
         LIMIT 1
     `
 
     var id int64
-    err = tx.QueryRow(ctx, selectQuery).Scan(&id)
-    if err == pgx.ErrNoRows {
+    err = tx.QueryRow(ctx, selectQuery).Scan(&id)  // executes the query inside the transaction  , tx basically means runs query inside transaction 
+	// scan takes values from the returned row and copies them into Go variables.
+
+    if err == pgx.ErrNoRows { // The query worked. There just wasn't any matching row.
         return nil, nil
     }
-    if err != nil {
+    if err != nil { // any other errors 
         return nil, err
     }
 
@@ -162,4 +165,84 @@ func (s *Store) ClaimJob(ctx context.Context) (*job.Job, error) {
     return &claimed, nil
 }
 
+type UpdateJobParams struct {
+    ID          int64
+    Status      job.Status
+    ErrorMsg    string
+    ScheduledAt time.Time
+}
 
+func (s *Store) UpdateJob(ctx context.Context, params UpdateJobParams) error {
+    const updateQuery = `
+        UPDATE jobs
+        SET status = $1,
+            attempts = CASE WHEN $1 IN ('failed', 'dead') THEN attempts + 1 ELSE attempts END,
+            error_msg = NULLIF($2, ''),
+            scheduled_at = $3,
+            updated_at = NOW()
+        WHERE id = $4
+    `
+
+    commandTag, err := s.db.Exec(
+        ctx,
+        updateQuery,
+        params.Status,
+        params.ErrorMsg,
+        params.ScheduledAt,
+        params.ID,
+    )
+    if err != nil {
+        return err
+    }
+
+    if commandTag.RowsAffected() == 0 {
+        return fmt.Errorf("no job found with id %d", params.ID)
+    }
+
+    return nil
+}
+
+func (s *Store) GetJobByID(ctx context.Context, id int64) (*job.Job, error) {
+	const query = `
+		SELECT
+			id,
+			job_type,
+			payload,
+			status,
+			attempts,
+			max_attempts,
+			COALESCE(error_msg, ''),
+			scheduled_at,
+			created_at,
+			updated_at
+		FROM jobs
+		WHERE id = $1
+	`
+
+	var j job.Job
+
+	err := s.db.QueryRow(ctx, query, id).Scan(
+		&j.ID,
+		&j.Type,
+		&j.Payload,
+		&j.Status,
+		&j.Attempts,
+		&j.MaxAttempts,
+		&j.ErrorMsg,
+		&j.ScheduledAt,
+		&j.CreatedAt,
+		&j.UpdatedAt,
+	)
+
+	//  ID doesn't exist
+	if err == pgx.ErrNoRows {
+		return nil, nil 
+	}
+	
+	// any other errors
+	if err != nil {
+		return nil, err
+	}
+
+	return &j, nil
+}
