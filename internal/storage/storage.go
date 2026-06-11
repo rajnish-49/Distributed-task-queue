@@ -236,7 +236,7 @@ func (s *Store) GetJobByID(ctx context.Context, id int64) (*job.Job, error) {
 		&j.UpdatedAt,
 	)
 
-	//  ID doesn't exist
+	//  NO id 
 	if err == pgx.ErrNoRows {
 		return nil, nil
 	}

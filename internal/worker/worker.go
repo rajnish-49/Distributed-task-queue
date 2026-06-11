@@ -28,41 +28,74 @@ func (w *Worker) Register(jobType string, handler HandlerFunc) {
 }
 
 func (w *Worker) executeJob(ctx context.Context, j *job.Job) error {
-	handler, ok := w.handlers[j.Type]
-	if !ok {
-		j.Attempts++
-		j.Status = job.StatusFailed
-		j.ErrorMsg = "no handler registered for this job type"
-		return w.store.UpdateJob(ctx, storage.UpdateJobParams{
-			ID:          j.ID,
-			Attempts:    j.Attempts,
-			Status:      j.Status,
-			ErrorMsg:    j.ErrorMsg,
-			ScheduledAt: j.ScheduledAt,
-		})
-	}
+    handler, ok := w.handlers[j.Type]
+    if !ok {
+        return w.store.UpdateJob(ctx, storage.UpdateJobParams{
+            ID:          j.ID,
+            Status:      job.StatusDead,
+            Attempts:    j.Attempts + 1,
+            ErrorMsg:    "no handler registered for job type: " + j.Type,
+            ScheduledAt: j.ScheduledAt,
+        })
+    }
 
-	err := handler(ctx, j)
-	j.Attempts++
+    err := handler(ctx, j)
 
-	if err == nil {
-		j.Status = job.StatusCompleted
-		j.ErrorMsg = ""
-	} else {
-		j.ErrorMsg = err.Error()
-		if j.Attempts >= j.MaxAttempts {
-			j.Status = job.StatusFailed
-		} else {
-			j.Status = job.StatusPending
-			j.ScheduledAt = time.Now().UTC().Add(time.Duration(j.Attempts) * 10 * time.Second)
-		}
-	}
+    if err == nil {
+        return w.store.UpdateJob(ctx, storage.UpdateJobParams{
+            ID:          j.ID,
+            Status:      job.StatusCompleted,
+            Attempts:    j.Attempts,
+            ScheduledAt: j.ScheduledAt,
+        })
+    }
 
-	return w.store.UpdateJob(ctx, storage.UpdateJobParams{
-		ID:          j.ID,
-		Attempts:    j.Attempts,
-		Status:      j.Status,
-		ErrorMsg:    j.ErrorMsg,
-		ScheduledAt: j.ScheduledAt,
-	})
+    newAttempts := j.Attempts + 1
+    if newAttempts >= j.MaxAttempts {
+        return w.store.UpdateJob(ctx, storage.UpdateJobParams{
+            ID:          j.ID,
+            Status:      job.StatusDead,
+            Attempts:    newAttempts,
+            ErrorMsg:    err.Error(),
+            ScheduledAt: j.ScheduledAt,
+        })
+    }
+
+    backoff := time.Duration(newAttempts) * 10 * time.Second
+    return w.store.UpdateJob(ctx, storage.UpdateJobParams{
+        ID:          j.ID,
+        Status:      job.StatusPending,
+        Attempts:    newAttempts,
+        ErrorMsg:    err.Error(),
+        ScheduledAt: time.Now().UTC().Add(backoff),
+    })
+}
+
+func (w *Worker) Start(ctx context.Context) {
+    idleDelay := 2 * time.Second
+    for {
+        if ctx.Err() != nil {
+            return
+        }
+
+        j, err := w.store.ClaimJob(ctx)
+        if err != nil {
+            log.Printf("error claiming job: %v\n", err)
+            time.Sleep(idleDelay)
+            continue
+        }
+
+        if j == nil {
+            select {
+            case <-ctx.Done():
+                return
+            case <-time.After(idleDelay):
+                continue
+            }
+        }
+
+        if err := w.executeJob(ctx, j); err != nil {
+            log.Printf("job %d failed: %v\n", j.ID, err)
+        }
+    }
 }
