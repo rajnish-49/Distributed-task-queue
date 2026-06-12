@@ -116,7 +116,7 @@ func (s *Store) ClaimJob(ctx context.Context) (*job.Job, error) {
 	err = tx.QueryRow(ctx, selectQuery).Scan(&id) // executes the query inside the transaction  , tx basically means runs query inside transaction
 	// scan takes values from the returned row and copies them into Go variables.
 
-	if err == pgx.ErrNoRows { // The query worked. There just wasn't any matching row.
+	if err == pgx.ErrNoRows { // The query is ok There just wasn't any matching row.
 		return nil, nil
 	}
 	if err != nil { // any other errors

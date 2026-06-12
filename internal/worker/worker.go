@@ -5,6 +5,7 @@ import (
 	"distributed-task-queue/internal/job"
 	"distributed-task-queue/internal/storage"
 	"time"
+	"log"
 )
 
 type HandlerFunc func(ctx context.Context, j *job.Job) error
@@ -72,7 +73,7 @@ func (w *Worker) executeJob(ctx context.Context, j *job.Job) error {
 }
 
 func (w *Worker) Start(ctx context.Context) {
-    idleDelay := 2 * time.Second
+    idledelay := 2 * time.Second
     for {
         if ctx.Err() != nil {
             return
@@ -81,15 +82,15 @@ func (w *Worker) Start(ctx context.Context) {
         j, err := w.store.ClaimJob(ctx)
         if err != nil {
             log.Printf("error claiming job: %v\n", err)
-            time.Sleep(idleDelay)
+            time.Sleep(idledelay) // wait and retry 
             continue
         }
 
         if j == nil {
-            select {
+            select { // whichever happens first 
             case <-ctx.Done():
                 return
-            case <-time.After(idleDelay):
+            case <-time.After(idledelay):
                 continue
             }
         }
