@@ -107,7 +107,7 @@ func (s *Store) ClaimJob(ctx context.Context) (*job.Job, error) {
         SELECT id FROM jobs
         WHERE status = 'pending'
         AND scheduled_at <= NOW()
-        ORDER BY scheduled_at ASC
+        ORDER BY scheduled_at ASC, id ASC
         FOR UPDATE SKIP LOCKED  
         LIMIT 1
     `
@@ -126,6 +126,8 @@ func (s *Store) ClaimJob(ctx context.Context) (*job.Job, error) {
 	const updateQuery = `
         UPDATE jobs
         SET status = 'processing',
+			attempts = attempts + 1,
+			error_msg = NULL,
             updated_at = NOW()
         WHERE id = $1
         RETURNING
@@ -236,7 +238,7 @@ func (s *Store) GetJobByID(ctx context.Context, id int64) (*job.Job, error) {
 		&j.UpdatedAt,
 	)
 
-	//  NO id 
+	//  NO id
 	if err == pgx.ErrNoRows {
 		return nil, nil
 	}

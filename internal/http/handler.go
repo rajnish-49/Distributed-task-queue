@@ -1,10 +1,10 @@
 package http
 
 import (
+	"distributed-task-queue/internal/storage"
 	"encoding/json"
 	"net/http"
 	"strconv"
-	"distributed-task-queue/internal/storage"
 )
 
 type Handler struct {
@@ -48,7 +48,7 @@ func (h *Handler) CreateJob(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) GetJob(w http.ResponseWriter, r *http.Request) {
 	idStr := r.PathValue("id")
-	
+
 	id, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil {
 		http.Error(w, "invalid job ID", http.StatusBadRequest)
